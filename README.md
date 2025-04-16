@@ -32,6 +32,23 @@ An idempotency key is a unique identifier associated with a specific request. Wh
 This repository demonstrates a production-grade implementation of idempotent APIs using Go, Redis, and PostgreSQL.
 
 ## System Architecture
+```
+┌─────────┐     ┌─────────────────┐     ┌─────────┐     ┌───────────┐
+│  Client │────▶│  API Gateway    │────▶│  Go API │────▶│ Business  │
+└─────────┘     └─────────────────┘     └─────────┘     │   Logic   │
+                                             │          └───────────┘
+                                             │                │
+                                        ┌────▼────┐      ┌────▼─────┐
+                                        │  Redis  │      │ Postgres │
+                                        │ (Cache) │      │   (DB)   │
+                                        └─────────┘      └──────────┘
+```
+## Core Components
+
+- **Idempotency Middleware:** Intercepts all requests to check for idempotency keys
+- **Redis Cache:** Stores in-flight request states and completed response payloads
+- **PostgreSQL:** Persists idempotency records for long-term reference
+- **Cleanup Job:** Manages key expiration and cleanup
 
 ### System Context
 ![System Context](/images/system-context.png)
