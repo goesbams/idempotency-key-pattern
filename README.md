@@ -186,7 +186,39 @@ This repository demonstrates a production-grade implementation of idempotent API
   }
 ```
 
-# Additional Resources
+# ⚠️ Common Challenges and Solutions
+## 1. Race Conditions
+**Problem:** Multiple identical requests arriving simultaneously before the first one completes.
+
+**Solution:** Implement a distributed lock system using Redis with SETNX.
+
+```go
+// setting an exclusive lock with Redis
+func acquireLock(rc *redis.Client, key string, ttl time.Duration) (bool, error) {
+  return rc.SetNX(context.Background(), "lock:"+key, "1", ttl).Result()
+}
+
+func releaseLock(rc *redis.Client, key string) {
+  rc.Del(context.Background(), "lock:"+key)
+}
+```
+
+## 2. Key Collisions
+**Problem:** Different operations generating the same idempotency key.
+
+**Solution:** Include operation-specific data in key generation.
+
+```go
+// Client-side: Generate key based on operation data
+func generateIdempotencyKey(operationType string, resourceID string, payload []byte) string {
+  h := sha256.New()
+  h.Write([]byte(operationType + resourceID))
+  h.Write(payload)
+  return fmt.Sprintf("%x", h.Sum(nil))
+}
+```
+
+# 📚 Additional Resources
 - [Understanding the Idempotent Property in REST APIs](https://www.restapitutorial.com/lessons/idempotency.html)
 - [Stripe's Idempotent Requests Documentation](https://stripe.com/docs/api/idempotent_requests)
 - [Implementing Idempotency in Distributed Systems](https://blog.cloudflare.com/introducing-workers-durable-objects/)
