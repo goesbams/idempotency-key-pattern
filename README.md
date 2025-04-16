@@ -186,5 +186,10 @@ This repository demonstrates a production-grade implementation of idempotent API
   }
 ```
 
+# Additional Resources
+- [Understanding the Idempotent Property in REST APIs](https://www.restapitutorial.com/lessons/idempotency.html)
+- [Stripe's Idempotent Requests Documentation](https://stripe.com/docs/api/idempotent_requests)
+- [Implementing Idempotency in Distributed Systems](https://blog.cloudflare.com/introducing-workers-durable-objects/)
+
 
 
