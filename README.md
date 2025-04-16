@@ -22,7 +22,7 @@ An idempotency key is a unique identifier associated with a specific request. Wh
 
 ## Properties of Idempotency Keys:
 
-- ** Unique:** Each distinct operation should have a different key
+- **Unique:** Each distinct operation should have a different key
 - **Client-generated:** Usually created by the client (UUID v4 recommended)
 - **Consistent:** The same operation should always use the same key
 - **Time-bound:** Keys can expire after a retention period
@@ -62,9 +62,7 @@ This repository demonstrates a production-grade implementation of idempotent API
 ### Idempotency Key Flow Sequence Diagram
 ![Sequence Diagram](/images/sequence-diagram.png)
 
-# 📝 How to Implement Idempotency
-
-## 1. Idempotency Key Management
+# 📝  Idempotency Key Management
 
 ### Client-Side Implementation:
 ```go
@@ -124,7 +122,69 @@ This repository demonstrates a production-grade implementation of idempotent API
         c.Abort()
         return
       }
+
+      if keyExists == 1 {
+        // Key exists, check if processing or completed
+        status, err := redisClient.HGet(ctx, "idempotent:"+idempotencyKey, "status").Result()
+        if err != nil {
+          c.JSON(500, gin.H{"error: Failed to check idempotency key"})
+          c.Abort()
+          return
+        }
+
+        if status == "processing" {
+          // Request is still being processed
+          c.JSON(409, gin.H{"error: A similiar request is currently being processed"})
+          c.Abort()
+          return
+        } else if status == "completed" {
+          // return the stored response
+          responseBody, _ := redisClient.HGet(ctx, "idempotent:"+idempotencyKey, "response").Result()
+          statusCode, _ := redisClient.HGet(ctx, "idempotent:"+idempotencyKey, "statusCode").Result()
+          
+          var response map[string]interface{}
+          json.Unmarshal([]byte(responseBody), &response)
+
+          code := 200
+          if statusCode != "" {
+            code, _ = strconv.Atoi(StatusCode)
+          }
+
+          c.JSON(code, response)
+          c.Abort()
+          return
+        }
+      }
+
+      // set key as processing
+      redisClient.HSet(ctx, "idempotent:"+idempotencyKey, "status", "processing")
+      redisClient.HSet(ctx, "idempotent:"+idempotencyKey, "created_at", time.Now().String())
+      redisClient.Expire(ctx, "idempotent:"+idempotencyKey, 24*time.Hour) // TTL for keys
+
+      // Create a custom response writer to capture the response
+      blw := &bodyLogWriter{body: bytes.NewBufferString(""), ResponseWriter: c.Writer}
+      c.Writer = blw
+
+      // process the request
+      c.Next()
+
+      // After processing, store the response
+      redisClient.HSet(ctx, "idempotent:"+idempotencyKey, "status", "completed")
+      redisClient.HSet(ctx, "idempotent:"+idempotencyKey, "response", blw.body.String())
+      redisClient.Hset(ctx, "idempotent:"+idempotencyKey, "statusCode", c.Writer.Status())
     }
   }
+
+  type bodyLogWriter struct {
+    gin.ResponseWriter
+    body *bytes.Buffer
+  }
+
+  func (w bodyLogWriter) Write(b []byte) (int, error) {
+    w.Body.Write(b)
+    return w.ResponseWriter.Write(b)
+  }
 ```
+
+
 
