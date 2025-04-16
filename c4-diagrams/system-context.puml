@@ -1,0 +1,18 @@
+@startuml "Idempotency Key Pattern - System Context"
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+LAYOUT_WITH_LEGEND()
+
+title "Idempotency Key Pattern - System Context Diagram"
+
+Person(client, "API Client", "Mobile app, Web client, or API consumer that issues requests")
+System(apiSys, "Idempotent API System", "Provides reliable API services with idempotency support")
+System_Ext(notificationSystem, "Notification System", "Sends notifications about transaction status")
+System_Ext(paymentProvider, "Payment Provider", "External payment processing service")
+
+Rel(client, apiSys, "Makes API calls with idempotency keys", "HTTPS/REST")
+Rel(apiSys, notificationSystem, "Sends notifications", "HTTPS/API")
+Rel(apiSys, paymentProvider, "Processes payments", "HTTPS/API")
+
+@enduml

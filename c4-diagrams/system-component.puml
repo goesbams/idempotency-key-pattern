@@ -1,0 +1,35 @@
+@startuml "Idempotency Key Pattern - Component Diagram"
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_WITH_LEGEND()
+
+title "Idempotency Key Pattern - Component Diagram"
+
+Container_Boundary(goAPI, "Go API Service") {
+    Component(paymentController, "Payment Controller", "Gin Controller", "Handles payment API endpoints")
+    Component(userController, "User Controller", "Gin Controller", "Handles user management endpoints")
+    Component(idempMiddleware, "Idempotency Middleware", "Gin Middleware", "Processes idempotency keys")
+    Component(paymentService, "Payment Service", "Go Service", "Implements payment business logic")
+    Component(userService, "User Service", "Go Service", "Implements user management logic")
+    Component(idempManager, "Idempotency Manager", "Go Service", "Core idempotency implementation")
+    Component(redisAdapter, "Redis Adapter", "Go Client", "Abstracts Redis operations")
+    Component(dbAdapter, "Database Adapter", "Go Repository", "Abstracts database operations")
+}
+
+ContainerDb(redis, "Redis Cache", "Redis/Memorystore", "Stores request state")
+ContainerDb(postgres, "PostgreSQL Database", "PostgreSQL/CloudSQL", "Persists data")
+
+Rel(paymentController, idempMiddleware, "Uses", "Middleware chain")
+Rel(userController, idempMiddleware, "Uses", "Middleware chain")
+Rel(idempMiddleware, idempManager, "Delegates to", "Function call")
+Rel(idempManager, redisAdapter, "Uses", "Function call")
+Rel(idempManager, dbAdapter, "Uses", "Function call")
+Rel(paymentController, paymentService, "Uses", "Function call")
+Rel(userController, userService, "Uses", "Function call")
+Rel(paymentService, dbAdapter, "Uses", "Function call")
+Rel(userService, dbAdapter, "Uses", "Function call")
+Rel(redisAdapter, redis, "Reads/writes", "Redis Protocol")
+Rel(dbAdapter, postgres, "Reads/writes", "SQL")
+
+@enduml

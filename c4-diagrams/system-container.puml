@@ -1,0 +1,36 @@
+@startuml "Idempotency Key Pattern - Container Diagram"
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+
+title "Idempotency Key Pattern - Container Diagram"
+
+Person(client, "API Client", "Mobile app, Web client, or API consumer that issues requests")
+System_Boundary(apiSys, "Idempotent API System") {
+    Container(apiGateway, "API Gateway", "Cloud Run/GKE", "Routes requests, handles authentication, rate limiting")
+    Container(goAPI, "Go API Service", "Golang/Gin", "Implements API endpoints with business logic")
+    Container(idempotencyMiddleware, "Idempotency Middleware", "Golang", "Detects and handles duplicate requests")
+    ContainerDb(redis, "Redis Cache", "Redis/Memorystore", "Stores in-flight and completed request state")
+    ContainerDb(postgres, "Main Database", "PostgreSQL/CloudSQL", "Persists business data and idempotency records")
+    Container(cleanupJob, "Cleanup Service", "Golang/Cloud Scheduler", "Periodically cleans up expired idempotency keys")
+    Container(monitoring, "Monitoring Service", "Prometheus/Grafana", "Tracks idempotency metrics and system health")
+}
+
+System_Ext(notificationSystem, "Notification System", "Sends notifications about transaction status")
+System_Ext(paymentProvider, "Payment Provider", "External payment processing service")
+
+Rel(client, apiGateway, "Makes API calls with idempotency keys", "HTTPS/REST")
+Rel(apiGateway, goAPI, "Routes requests", "HTTP")
+Rel(goAPI, idempotencyMiddleware, "Passes through", "Internal")
+Rel(idempotencyMiddleware, redis, "Checks/stores request state", "Redis Protocol")
+Rel(idempotencyMiddleware, goAPI, "Allows or returns cached response", "Internal")
+Rel(goAPI, postgres, "Stores business data", "SQL")
+Rel(idempotencyMiddleware, postgres, "Persists idempotency records", "SQL")
+Rel(cleanupJob, redis, "Removes expired keys", "Redis Protocol")
+Rel(cleanupJob, postgres, "Archives expired records", "SQL")
+Rel(goAPI, notificationSystem, "Sends notifications", "HTTPS/API")
+Rel(goAPI, paymentProvider, "Processes payments", "HTTPS/API")
+Rel_Back(monitoring, idempotencyMiddleware, "Collects metrics", "Prometheus Protocol")
+
+@enduml

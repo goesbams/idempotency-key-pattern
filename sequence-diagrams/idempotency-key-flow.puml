@@ -1,0 +1,67 @@
+@startuml "Idempotency Key Flow - Sequence Diagram"
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Dynamic.puml
+
+title "Idempotency Key Flow - Sequence Diagram"
+
+actor Client
+participant "API Gateway" as Gateway
+participant "Idempotency Middleware" as Middleware
+participant "Redis Cache" as Redis
+participant "API Service" as Service
+participant "Database" as DB
+
+== First Request ==
+
+Client -> Gateway: POST /api/payment\nIdempotency-Key: uuid-123
+Gateway -> Middleware: Forward request
+Middleware -> Redis: Check for key "uuid-123"
+Redis --> Middleware: Key not found
+Middleware -> Redis: Set key="uuid-123" status="processing"
+Middleware -> Service: Forward request
+Service -> DB: Store payment data
+DB --> Service: Success
+Service --> Middleware: Response (200 OK)
+Middleware -> Redis: Set key="uuid-123" status="completed"\nStore response
+Middleware -> DB: Log idempotent request (async)
+Middleware --> Gateway: Forward response
+Gateway --> Client: 200 OK with response
+
+== Duplicate Request ==
+
+Client -> Gateway: POST /api/payment\nIdempotency-Key: uuid-123
+Gateway -> Middleware: Forward request
+Middleware -> Redis: Check for key "uuid-123"
+Redis --> Middleware: Key found, status="completed"
+Middleware -> Redis: Get stored response
+Redis --> Middleware: Return cached response
+Middleware --> Gateway: Return cached response
+Gateway --> Client: 200 OK with same response
+
+== Concurrent Duplicate Requests ==
+
+Client -> Gateway: POST /api/payment\nIdempotency-Key: uuid-456
+Gateway -> Middleware: Forward request
+Middleware -> Redis: Acquire lock for "uuid-456"
+Redis --> Middleware: Lock acquired
+Middleware -> Redis: Check for key "uuid-456"
+Redis --> Middleware: Key not found
+
+Client -> Gateway: POST /api/payment\nIdempotency-Key: uuid-456
+Gateway -> Middleware: Forward request
+Middleware -> Redis: Acquire lock for "uuid-456"
+Redis --> Middleware: Lock failed (in use)
+Middleware --> Gateway: 409 Conflict - Request in progress
+Gateway --> Client: 409 Conflict
+
+Middleware -> Redis: Set key="uuid-456" status="processing"
+Middleware -> Service: Forward request
+Service -> DB: Store payment data
+DB --> Service: Success
+Service --> Middleware: Response (200 OK)
+Middleware -> Redis: Set key="uuid-456" status="completed"\nStore response
+Middleware -> Redis: Release lock
+Middleware --> Gateway: Forward response
+Gateway --> Client: 200 OK with response
+
+@enduml
