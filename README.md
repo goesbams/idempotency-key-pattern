@@ -217,6 +217,26 @@ func generateIdempotencyKey(operationType string, resourceID string, payload []b
   return fmt.Sprintf("%x", h.Sum(nil))
 }
 ```
+# 📊 Monitoring and Observability
+```go
+// Prometheus metrics for idempotency tracking
+var (
+  idempotencyHits = prometheus.NewCounter(prometheus.CounterOpts{
+    Name: "idempotency_hits_total",
+    Help: "Total number of repeated requests caught by idempotency checks",
+  })
+
+  idempotencyProccesingtime = prometheus.NewHistogram(prometheus.HistogramOpts{
+    Name: "idempotency_processing_seconds",
+    Help: "Time spent processing idempotency logic",
+  })
+)
+
+func init() {
+  prometheus.MustRegister(idempotencyHits)
+  prometheus.MustRegister(idempotencyProcessingTime)
+}
+```
 
 # 📚 Additional Resources
 - [Understanding the Idempotent Property in REST APIs](https://www.restapitutorial.com/lessons/idempotency.html)
