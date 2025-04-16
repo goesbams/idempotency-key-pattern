@@ -50,17 +50,27 @@ This repository demonstrates a production-grade implementation of idempotent API
 - **PostgreSQL:** Persists idempotency records for long-term reference
 - **Cleanup Job:** Manages key expiration and cleanup
 
-### System Context
+### System Context (L1)
 ![System Context](/images/system-context.png)
 
-### System Container
+### System Container (L2)
 ![System Container](/images/system-container.png)
 
-### System Component
+### System Component (L3)
 ![System Component](/images/system-component.png)
 
 ### Idempotency Key Flow Sequence Diagram
 ![Sequence Diagram](/images/sequence-diagram.png)
+
+# 🌟 Understanding the Architecture
+The C4 diagrams provided earlier follow the C4 model for visualizing software architecture at different levels of detail:
+
+1. **Context (L1):** Shows how our system fits into the world around it
+2. **Container (L2):** Shows the high-level technology components that make up the system
+3. **Component (L3):** Shows how a container is made up of components and their relationships
+4. **Sequence:** Shows the runtime behavior in different scenarios
+
+> These diagrams help stakeholders understand the system from multiple perspectives. The Context diagram helps business stakeholders understand the system boundaries, while the Container and Component diagrams help developers understand the technical architecture.
 
 # 📝  Idempotency Key Management
 
