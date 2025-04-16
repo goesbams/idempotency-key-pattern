@@ -87,103 +87,140 @@ This repository demonstrates a production-grade implementation of idempotent API
 ### Server-Side Implementation
 
 ```go
-  package middleware
+package middleware
 
-  import (
-    "github.com/gin-gonic/gin"
-    "github.com/go-redis/redis/v8"
-    "context"
-    "time"
-    "encoding/json"
-  )
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"strconv"
+	"time"
 
-  // Idempotency Middleware checks and enforces idempotency
-  func IdempotencyMiddleware(redisClient *redis.Client) gin.HandleFunc {
-    return func(c *gin.Context) {
-      // Only apply to mutating methods (POST, PUT, PATCH, DELETE)
-      if c.Request.Method == "GET" {
-        c.Next()
-        return
-      }
+	"github.com/go-redis/redis/v8"
+	"github.com/labstack/echo/v4"
+)
 
-      idempotencyKey :c.GetHeader("X-Idempotency-Key")
-      if idempotencyKey == "" {
-        c.JSON(400, gin.H{"error": "X-Idempotency-Key header is required"})
-        c.Abort()
-        return
-      }
+// IdempotencyMiddleware checks and enforces idempotency
+func IdempotencyMiddleware(redisClient *redis.Client) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			// Only apply to mutating methods (POST, PUT, PATCH, DELETE)
+			if c.Request().Method == "GET" {
+				return next(c)
+			}
 
-      ctx := context.Background()
+			idempotencyKey := c.Request().Header.Get("X-Idempotency-Key")
+			if idempotencyKey == "" {
+				return c.JSON(http.StatusBadRequest, map[string]string{"error": "X-Idempotency-Key header is required"})
+			}
 
-      // check if idempotency key exists before
-      keyExists, err := redisClient.Exists(ctx, "idempotent:"+idempotencyKey).Result()
-      if err != nil {
-        c.JSON(500, gin.H{"error": "Failed to check idempotency key"})
-        c.Abort()
-        return
-      }
+			ctx := context.Background()
 
-      if keyExists == 1 {
-        // Key exists, check if processing or completed
-        status, err := redisClient.HGet(ctx, "idempotent:"+idempotencyKey, "status").Result()
-        if err != nil {
-          c.JSON(500, gin.H{"error: Failed to check idempotency key"})
-          c.Abort()
-          return
-        }
+			// Check if idempotency key exists before
+			keyExists, err := redisClient.Exists(ctx, "idempotent:"+idempotencyKey).Result()
+			if err != nil {
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to check idempotency key"})
+			}
 
-        if status == "processing" {
-          // Request is still being processed
-          c.JSON(409, gin.H{"error: A similiar request is currently being processed"})
-          c.Abort()
-          return
-        } else if status == "completed" {
-          // return the stored response
-          responseBody, _ := redisClient.HGet(ctx, "idempotent:"+idempotencyKey, "response").Result()
-          statusCode, _ := redisClient.HGet(ctx, "idempotent:"+idempotencyKey, "statusCode").Result()
-          
-          var response map[string]interface{}
-          json.Unmarshal([]byte(responseBody), &response)
+			if keyExists == 1 {
+				// Key exists, check if processing or completed
+				status, err := redisClient.HGet(ctx, "idempotent:"+idempotencyKey, "status").Result()
+				if err != nil {
+					return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to check idempotency key status"})
+				}
 
-          code := 200
-          if statusCode != "" {
-            code, _ = strconv.Atoi(StatusCode)
-          }
+				if status == "processing" {
+					// Request is still being processed
+					return c.JSON(http.StatusConflict, map[string]string{"error": "A similar request is currently being processed"})
+				} else if status == "completed" {
+					// Return the stored response
+					responseBody, _ := redisClient.HGet(ctx, "idempotent:"+idempotencyKey, "response").Result()
+					statusCode, _ := redisClient.HGet(ctx, "idempotent:"+idempotencyKey, "statusCode").Result()
 
-          c.JSON(code, response)
-          c.Abort()
-          return
-        }
-      }
+					var response map[string]interface{}
+					json.Unmarshal([]byte(responseBody), &response)
 
-      // set key as processing
-      redisClient.HSet(ctx, "idempotent:"+idempotencyKey, "status", "processing")
-      redisClient.HSet(ctx, "idempotent:"+idempotencyKey, "created_at", time.Now().String())
-      redisClient.Expire(ctx, "idempotent:"+idempotencyKey, 24*time.Hour) // TTL for keys
+					code := http.StatusOK
+					if statusCode != "" {
+						code, _ = strconv.Atoi(statusCode)
+					}
 
-      // Create a custom response writer to capture the response
-      blw := &bodyLogWriter{body: bytes.NewBufferString(""), ResponseWriter: c.Writer}
-      c.Writer = blw
+					return c.JSON(code, response)
+				}
+			}
 
-      // process the request
-      c.Next()
+			// Set key as processing
+			redisClient.HSet(ctx, "idempotent:"+idempotencyKey, "status", "processing")
+			redisClient.HSet(ctx, "idempotent:"+idempotencyKey, "created_at", time.Now().String())
+			redisClient.Expire(ctx, "idempotent:"+idempotencyKey, 24*time.Hour) // TTL for keys
 
-      // After processing, store the response
-      redisClient.HSet(ctx, "idempotent:"+idempotencyKey, "status", "completed")
-      redisClient.HSet(ctx, "idempotent:"+idempotencyKey, "response", blw.body.String())
-      redisClient.Hset(ctx, "idempotent:"+idempotencyKey, "statusCode", c.Writer.Status())
-    }
-  }
+			// Create a custom response writer to capture the response
+			resBody := new(bytes.Buffer)
+			mw := io.MultiWriter(c.Response().Writer, resBody)
+			writer := &bodyLogWriter{
+				ResponseWriter: c.Response().Writer,
+				body:           resBody,
+			}
+			c.Response().Writer = writer
 
-  type bodyLogWriter struct {
-    gin.ResponseWriter
-    body *bytes.Buffer
-  }
+			// Process the request
+			err = next(c)
+			if err != nil {
+				return err
+			}
 
-  func (w bodyLogWriter) Write(b []byte) (int, error) {
-    w.Body.Write(b)
-    return w.ResponseWriter.Write(b)
-  }
+			// After processing, store the response
+			redisClient.HSet(ctx, "idempotent:"+idempotencyKey, "status", "completed")
+			redisClient.HSet(ctx, "idempotent:"+idempotencyKey, "response", resBody.String())
+			redisClient.HSet(ctx, "idempotent:"+idempotencyKey, "statusCode", strconv.Itoa(c.Response().Status))
+
+			return nil
+		}
+	}
+}
+
+// Custom response writer to capture response body
+type bodyLogWriter struct {
+	http.ResponseWriter
+	body *bytes.Buffer
+}
+
+func (w *bodyLogWriter) Write(b []byte) (int, error) {
+	w.body.Write(b)
+	return w.ResponseWriter.Write(b)
+}
+
+// Example usage in Echo application
+func SetupEchoServer() *echo.Echo {
+	e := echo.New()
+	
+	// Setup Redis client
+	redisClient := redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+	})
+	
+	// Apply idempotency middleware to specific route groups
+	apiGroup := e.Group("/api")
+	apiGroup.Use(IdempotencyMiddleware(redisClient))
+	
+	// Define your routes
+	apiGroup.POST("/payments", handlePayment)
+	apiGroup.PUT("/users/:id", updateUser)
+	
+	return e
+}
+
+func handlePayment(c echo.Context) error {
+	// Payment processing logic here
+	return c.JSON(http.StatusOK, map[string]string{"status": "payment_success"})
+}
+
+func updateUser(c echo.Context) error {
+	// User update logic here
+	return c.JSON(http.StatusOK, map[string]string{"status": "user_updated"})
+}
 ```
 
 # ⚠️ Common Challenges and Solutions
