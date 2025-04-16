@@ -62,4 +62,69 @@ This repository demonstrates a production-grade implementation of idempotent API
 ### Idempotency Key Flow Sequence Diagram
 ![Sequence Diagram](/images/sequence-diagram.png)
 
+# 📝 How to Implement Idempotency
+
+## 1. Idempotency Key Management
+
+### Client-Side Implementation:
+```go
+  import (
+    "github.com/google/uuid"
+    "net/http"
+  )
+
+  func IdempotentRequest() {
+    // Generate a unique idempotency key for this operation
+    idempotencyKey := uuid.New().String()
+
+    // Store this key if you need to make exact same request later
+    req, _ := http.NewRequest("POST", "https://api.goesbams.com/payments", payloadBody)
+    req.Header.Add("X-Idempotency-Key", idempotencyKey)
+
+    // make the request
+    // if network fails, this request will be retried with the same idempotency key
+  }
+```
+
+### Server-Side Implementation
+
+```go
+  package middleware
+
+  import (
+    "github.com/gin-gonic/gin"
+    "github.com/go-redis/redis/v8"
+    "context"
+    "time"
+    "encoding/json"
+  )
+
+  // Idempotency Middleware checks and enforces idempotency
+  func IdempotencyMiddleware(redisClient *redis.Client) gin.HandleFunc {
+    return func(c *gin.Context) {
+      // Only apply to mutating methods (POST, PUT, PATCH, DELETE)
+      if c.Request.Method == "GET" {
+        c.Next()
+        return
+      }
+
+      idempotencyKey :c.GetHeader("X-Idempotency-Key")
+      if idempotencyKey == "" {
+        c.JSON(400, gin.H{"error": "X-Idempotency-Key header is required"})
+        c.Abort()
+        return
+      }
+
+      ctx := context.Background()
+
+      // check if idempotency key exists before
+      keyExists, err := redisClient.Exists(ctx, "idempotent:"+idempotencyKey).Result()
+      if err != nil {
+        c.JSON(500, gin.H{"error": "Failed to check idempotency key"})
+        c.Abort()
+        return
+      }
+    }
+  }
+```
 
